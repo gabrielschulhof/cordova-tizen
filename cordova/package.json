@@ -1,0 +1,22 @@
+{
+  "name": "cordova-tizen-commands",
+  "version": "3.3.0",
+  "description": "cordova tizen commands",
+  "main": "./run",
+  "scripts": {
+    "run": "./run"
+  },
+  "keywords": [
+    "cordova",
+    "cli",
+    "tooling",
+    "tizen"
+  ],
+  "dependencies": {
+    "shelljs": "0.1.4",
+    "xml2js": "0.2.8"
+  },
+  "author": "Gabriel Schulhof",
+  "contributors": [],
+  "license": "Apache V2"
+}

@@ -1,0 +1,178 @@
+#!/usr/bin/env node
+
+var command,
+	xml2js = require( "xml2js" ),
+	shelljs = require( "shelljs" ),
+	fs = require( "fs" ),
+	sys = require( "sys" ),
+	path = require( "path" ),
+	exec = require( "child_process" ).exec,
+	wwwDir = path.join( __dirname, "..", "www" ),
+	buildResultDir = path.join( wwwDir, ".buildResult" );
+
+function dumpCommandInfo( command, cwd, error, stdout, stderr ) {
+	sys.puts( "command: " + command );
+	sys.puts( "working directory: " + cwd );
+	sys.puts( "Its stdout:" );
+	sys.puts( "---" );
+	if ( stdout ) {
+		sys.puts( stdout.slice( 0, stdout.length - 1 ) );
+	}
+	sys.puts( "---" );
+	sys.puts( "Its stderr:" );
+	sys.puts( "---" );
+	if ( stderr ) {
+		sys.puts( stderr.slice( 0, stderr.length - 1 ) );
+	}
+	sys.puts( "---" );
+	sys.puts( "Error:" )
+	sys.puts( "---" );
+	sys.puts( ( ( error && ( error.message || error ) ) || "None" ) );
+	sys.puts( "---" );
+	sys.puts( "" );
+}
+
+function getConfigInfo( configXmlPath, callback ) {
+
+	// Initially create some unique ID for the filename
+	var returnValue = {
+		widgetFileName: Date.now().toString( 36 ) + ".wgt"
+	};
+
+	fs.readFile( configXmlPath, { encoding: "UTF-8" }, function( err, data ) {
+
+		if ( !err ) {
+
+			// Grab the widget id
+			xml2js.parseString( data, function( err, result ) {
+
+				if ( !err && result ) {
+					if ( result.widget ) {
+						if ( result.widget[ "$" ] &&
+							result.widget[ "$" ].id ) {
+							returnValue.widgetFileName = result.widget[ "$" ].id + ".wgt";
+						}
+						if ( result.widget[ "tizen:application" ] &&
+							result.widget[ "tizen:application" ][ 0 ] &&
+							result.widget[ "tizen:application" ][ 0 ][ "$" ] ) {
+							returnValue.widgetId = result.widget[ "tizen:application" ][ 0 ][ "$" ].id;
+						}
+					}
+				}
+
+				callback( returnValue );
+			});
+		}
+	});
+}
+
+function cleanupAndExit( code ) {
+	if ( code === 0 ) {
+		shelljs.rm( "-r", buildResultDir );
+	}
+	process.exit( code );
+}
+
+if ( process.argv[ 2 ] === "--emulator" ) {
+
+	// Step 1: Run web-build from the www directory
+	// The -o option needs to be omitted if you have debugger; statements in your code.
+	command = "web-build . -o -eufm";
+	exec( command, {
+		cwd: wwwDir
+	}, function( error, stdout, stderr ) {
+		dumpCommandInfo( command, wwwDir, error, stdout, stderr );
+
+		if ( !error ) {
+			profilesPath = path.join( __dirname, "..", "profiles.xml" );
+
+			// Make sure the profiles.xml file is present
+			if ( fs.existsSync( profilesPath ) ) {
+
+				// Step 2: Run web-signing
+				command = "web-signing -np test:" + profilesPath;
+				exec( command, {
+					cwd: buildResultDir,
+				}, function( error, stdout, stderr ) {
+					dumpCommandInfo( command, buildResultDir, error, stdout, stderr );
+					if ( !error ) {
+
+						// Calculate the filename used for the widget
+						getConfigInfo( path.join( wwwDir, "config.xml" ),
+							function( configInfo ) {
+
+								// Step 3: Run web-packaging
+								command = "web-packaging -n " + configInfo.widgetFileName;
+								exec( command, {
+									cwd: buildResultDir
+								}, function( error, stdout, stderr ) {
+									dumpCommandInfo( command, buildResultDir, error, stdout, stderr );
+
+									if ( !error ) {
+
+										// Step 4: Run web-install
+										command = "web-install -w " + configInfo.widgetFileName;
+										exec( command, {
+											cwd: buildResultDir
+										}, function( error, stdout, stderr ) {
+											dumpCommandInfo( command, buildResultDir, error, stdout, stderr );
+
+											if ( !error ) {
+
+												// Step 5: Run the application
+												if ( configInfo.widgetId ) {
+													command = "web-run -i " + configInfo.widgetId;
+													exec( command, {}, function( error, stdout, stderr ) {
+														dumpCommandInfo( command, buildResultDir, error, stdout, stderr );
+
+														if ( !error ) {
+															cleanupAndExit( 0 );
+														} else {
+															sys.puts( "Failed to launch application." );
+															cleanupAndExit( 1 );
+														}
+
+													});
+												} else {
+													sys.puts( "Unable to retrieve widget ID. You may be able to run the application from the emulator manually." );
+													cleanupAndExit( 1 );
+												}
+
+											} else {
+												sys.puts( "Failed to install application. If the emulator is not running, please start it." );
+												cleanupAndExit( 1 );
+											}
+
+										});
+									} else {
+										sys.puts( "Failed to package application." );
+										cleanupAndExit( 1 );
+									}
+								});
+							});
+					} else {
+						sys.puts( "Failed to sign application." );
+						cleanupAndExit( 1 );
+					}
+				});
+
+			// Missing profiles.xml - prompt the user to create it manually
+			} else {
+				sys.puts( "Missing file needed for signing. Please create '" +
+					profilesPath + "' according to the instructions at " +
+					"https://developer.tizen.org/help/index.jsp?topic=%2Forg.tizen.web." +
+					"appprogramming%2Fhtml%2Fide_sdk_tools%2Fusing_cli.htm (look for " +
+					"'Creating and Using a Sign Profile')\nIf you have already created " +
+					"a signing profile, please place the corresponding profiles.xml " +
+					"file, a copy of it, or a symlink to it into " +
+					path.join( __dirname, "..") + "." );
+				cleanupAndExit( 1 );
+			}
+		} else {
+			sys.puts( "Failed to build application." );
+			cleanupAndExit( 1 );
+		}
+	});
+} else if ( process.argv[ 2 ] === "--device" ) {
+	sys.puts( "Error: Running on device is not supported" );
+}

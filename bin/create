@@ -1,0 +1,55 @@
+#!/usr/bin/env node
+
+// Responsible for copying files from www to platforms/tizen/www
+// - www/config.xml
+// + www/cordova.js
+// Responsible for adding scripts into platforms/tizen/cordova/
+// - platforms/tizen/cordova/run will run the app on the device/emulator, so it's SDK specific
+// - platforms/tizen/cordova/build will build the app - whatever that means
+
+var runCreate = function() {
+
+	var command, cwd,
+		path = require( "path" ),
+		sys = require( "sys" ),
+		shelljs = require( "shelljs" ),
+		exec = require( "child_process" ).exec,
+		platformPath = process.argv[ 2 ],
+		id = process.argv[ 3 ],
+		name = process.argv[ 4 ],
+		projectRoot = path.join( platformPath, "..", ".." );
+
+	shelljs.mkdir( "-p", platformPath );
+	shelljs.cp( "-r", path.join( projectRoot, "www" ), platformPath );
+	shelljs.rm( "-f", path.join( platformPath, "www", "config.xml" ) );
+	shelljs.cp( path.join( __dirname, "..", "www", "cordova.js" ),
+		path.join( platformPath, "www", "cordova.js" ) );
+	shelljs.cp( "-r", path.join( __dirname, "..", "cordova" ), platformPath );
+	shelljs.chmod( 755, path.join( platformPath, "cordova", "*" ) );
+	command = "npm install";
+	cwd = path.join( platformPath, "cordova" );
+	exec( "npm install", { cwd: cwd },
+		function( error, stdout, stderr ) {
+			sys.puts( "command: " + command );
+			sys.puts( "working directory: " + cwd );
+			sys.puts( "stdout:" );
+			sys.puts( stdout );
+			sys.puts( "stderr:" );
+			sys.puts( stderr );
+			sys.puts( "error:" );
+			sys.puts( ( error && ( error.message || error ) ) || "None" );
+		});
+}
+
+var path = require( "path" ),
+	fs = require( "fs" );
+
+if ( !fs.existsSync( path.join( __dirname, "..", "node_modules" ) ) ) {
+	require( "child_process" ).exec( "npm install", {
+		cwd: path.join( __dirname, ".." )
+		}, function( error, stdout, stderr ) {
+			runCreate();
+		});
+} else {
+	runCreate();
+}
